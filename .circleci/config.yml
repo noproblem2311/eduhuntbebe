@@ -1,0 +1,63 @@
+version: 2.1
+
+jobs:
+  # Job to check syntax
+  check-syntax:
+    docker:
+      - image: cimg/base:current  # Specify a base image
+    steps:
+      - checkout
+      - run:
+          name: "Check syntax"
+          command: |
+            echo "Checking syntax..."
+            sleep 80  # Pause for 80 seconds
+            # Add your syntax checking command, for example, linting:
+            # For Python, you might use: python -m py_compile *.py
+            # For JavaScript/TypeScript, you might use: eslint .
+            # For .NET, you could use: dotnet build --no-restore
+            echo "Syntax check passed."
+
+  # Job to run tests
+  run-tests:
+    docker:
+      - image: cimg/base:current  # Use an appropriate image based on your project, e.g., cimg/dotnet for .NET
+    steps:
+      - checkout
+      - run:
+          name: "Run tests"
+          command: |
+            echo "Running tests..."
+            sleep 80  # Pause for 80 seconds
+            # Add your test command here
+            # For .NET, you could use: dotnet test
+            # For Python, you could use: pytest
+            echo "Tests passed."
+
+  # Job to deploy the application
+  deploy:
+    docker:
+      - image: cimg/base:current  # Use an appropriate image based on your deployment environment
+    steps:
+      - checkout
+      - run:
+          name: "Deploy application"
+          command: |
+            echo "Deploying application..."
+            sleep 80  # Pause for 80 seconds
+            # Add your deployment command here
+            # For example: aws s3 cp ./myapp s3://mybucket --recursive
+            echo "Application deployed."
+
+# Define the workflow
+workflows:
+  version: 2
+  deploy-workflow:
+    jobs:
+      - check-syntax
+      - run-tests:
+          requires:
+            - check-syntax
+      - deploy:
+          requires:
+            - run-tests

@@ -1,0 +1,97 @@
+version: 2.1
+
+executors:
+  dotnet-executor:
+    docker:
+      - image: cimg/dotnet:8.0
+    working_directory: ~/myapp
+    environment:
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      AWS_REGION: "us-west-1"
+
+jobs:
+  check-syntax:
+    executor: dotnet-executor
+    steps:
+      - checkout
+      - run:
+          name: "Restore .NET Packages"
+          command: dotnet restore
+      - run:
+          name: "Check Syntax with Build"
+          command: dotnet build --no-restore --configuration Debug
+
+  run-tests:
+    executor: dotnet-executor
+    steps:
+      - checkout
+      - run:
+          name: "Restore .NET Packages"
+          command: dotnet restore
+      - run:
+          name: "Run Unit Tests"
+          command: dotnet test --no-build --verbosity normal
+
+  deploy:
+    executor: dotnet-executor
+    steps:
+      - checkout
+      - run:
+          name: "Install AWS CLI"
+          command: |
+            sudo apt-get update
+            sudo apt-get install awscli -y
+      - run:
+          name: "Deploy to S3"
+          command: |
+            aws s3 cp ./build s3://myapp-prod-bucket/ --recursive
+      - run:
+          name: "Invalidate CloudFront Cache"
+          command: |
+            aws cloudfront create-invalidation --distribution-id ED1234567EXAMPLE --paths "/*"
+      - run:
+          name: "Apply Database Migrations"
+          command: |
+            DB_ENDPOINT="rds-instance.abcdefg123456.us-west-1.rds.amazonaws.com"
+            dotnet ef database update --connection "Server=$DB_ENDPOINT;Database=myapp_db;User Id=dbadmin;Password=SuperSecret123;"
+
+  connect-ec2-and-deploy:
+    executor: dotnet-executor
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+      - run:
+          name: "Add Service ARNs to EC2 Instance"
+          command: |
+            echo "Adding service ARNs..."
+            echo "Attaching ARN: arn:aws:iam::123456789012:role/S3AccessRole"
+            echo "Attaching ARN: arn:aws:iam::123456789012:role/RDSAccessRole"
+            echo "Attaching ARN: arn:aws:iam::123456789012:role/CloudFrontAccessRole"
+            echo "All ARNs successfully added."
+      - run:
+          name: "Connect to EC2 and Deploy Code"
+          command: |
+            ssh -o StrictHostKeyChecking=no ubuntu@ec2-52-14-123-456.us-west-1.compute.amazonaws.com 'bash -s' << 'EOF'
+              cd /var/www/myapp
+              git pull origin main
+              dotnet build --configuration Release
+              sudo systemctl restart myapp
+            EOF
+            echo "Code pulled and app restarted on EC2 instance."
+
+workflows:
+  version: 2
+  deploy-flow:
+    jobs:
+      - check-syntax
+      - run-tests:
+          requires:
+            - check-syntax
+      - deploy:
+          requires:
+            - run-tests
+      - connect-ec2-and-deploy:
+          requires:
+            - deploy
